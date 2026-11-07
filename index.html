@@ -16,7 +16,7 @@ body { background: var(--ink); color: var(--parch); font-family: var(--body); ov
 #paint { position: absolute; inset: 0; mix-blend-mode: soft-light; opacity: 0.85; background-size: cover; pointer-events: none; display: none; }
 /* YouTube frames: cover the screen and crop the title bar and watermark */
 .vis { position: absolute; inset: 0; opacity: 0; transition-property: opacity; transition-timing-function: ease-in-out; pointer-events: none; }
-.vis iframe, .vis > div { position: absolute; left: 50%; top: 50%; width: max(100vw, 177.78vh); height: max(56.25vw, 100vh); transform: translate(-50%, -50%) scale(1.18); border: 0; }
+.vis iframe, .vis > div { position: absolute; left: 50%; top: 50%; width: max(150vw, 266.67vh); height: max(84.38vw, 150vh); transform: translate(-50%, -50%) scale(0.84); border: 0; }
 #audioBox { position: fixed; right: 0; bottom: 0; width: 220px; height: 220px; overflow: hidden; z-index: -1; opacity: 0.01; pointer-events: none; }
 #audioBox div, #audioBox iframe { position: absolute; inset: 0; width: 220px; height: 220px; }
 #shade { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.45)); }
@@ -1266,8 +1266,8 @@ setInterval(() => {
     const T = (L.fadeOut ? live[L.kind].sc : L.sc).fade * 1000; // the incoming scene sets the pace
     if (L.fadeOut) {
       const succ = live[L.kind];
+      if (L.kind === "visual") { if (succ.playing) { L.stop(); fading.delete(L); } continue; } // old picture stays until the new one plays
       if (!succ.playing && now - L.t0 < 6000) { L.level(layerTarget(L) * L.fade); continue; } // hold until the next one plays (max 6 s)
-      if (L.kind === "visual") { L.stop(); fading.delete(L); continue; }
       if (!L.outStart) L.outStart = now;
       L.fade = Math.max(0, L.from * (1 - (now - L.outStart) / T));
       L.level(layerTarget(L) * Math.cos((1 - L.fade) * Math.PI / 2));
