@@ -16,7 +16,13 @@ body { background: var(--ink); color: var(--parch); font-family: var(--body); ov
 #paint { position: absolute; inset: 0; mix-blend-mode: soft-light; opacity: 0.85; background-size: cover; pointer-events: none; display: none; }
 /* YouTube frames: cover the screen and crop the title bar and watermark */
 .vis { position: absolute; inset: 0; opacity: 0; transition-property: opacity; transition-timing-function: ease-in-out; pointer-events: none; }
-.vis iframe, .vis > div { position: absolute; left: 50%; top: 50%; width: max(125vw, 222.22vh); height: max(70.31vw, 125vh); transform: translate(-50%, -50%) scale(0.92); border: 0; }
+.vis iframe, .vis > .yt { position: absolute; left: 50%; top: 50%; width: max(100vw, 177.78vh); height: max(56.25vw, 100vh); transform: translate(-50%, -50%) scale(1.15); border: 0; }
+/* living still: a painting with slow camera drift (ping pong, so it never jumps), firelight flicker, embers and smoke */
+.still img { position: absolute; inset: -4%; width: 108%; height: 108%; object-fit: cover; animation: drift 46s ease-in-out infinite alternate; }
+@keyframes drift { from { transform: scale(1) translate(0, 0); } to { transform: scale(1.07) translate(-1.6%, -1.1%); } }
+.still .glow { position: absolute; inset: 0; mix-blend-mode: screen; pointer-events: none; }
+.still canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+@media (prefers-reduced-motion: reduce) { .still img { animation: none; } }
 #audioBox { position: fixed; right: 0; bottom: 0; width: 220px; height: 220px; overflow: hidden; z-index: -1; opacity: 0.01; pointer-events: none; }
 #audioBox div, #audioBox iframe { position: absolute; inset: 0; width: 220px; height: 220px; }
 #shade { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.45)); }
@@ -43,7 +49,7 @@ body { background: var(--ink); color: var(--parch); font-family: var(--body); ov
 "use strict";
 const SHEET_ID = "1oCoPLPpskk381FjGds7VneR6OUfrT8oGSwpkpHK9EN0";
 const SHEET_URL = () => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&range=A1:D1&headers=0&t=${Date.now()}`;
-const POLL_MS = 3000;
+const POLL_MS = 1500;
 const DEFAULTS = { scene: "road_day", music: 30, amb: 35, muted: false };
 
 // YouTube picks per scene: candidates in order, the next one is tried if a video will not play.
@@ -392,7 +398,7 @@ const PICKS = {
   "visual": [
    {
     "id": "76jVr9QVBtQ",
-    "start": 0,
+    "start": 251,
     "len": 0,
     "t": "Thunderstorms and Heavy Rain (Lost Music Co.)"
    },
@@ -412,7 +418,7 @@ const PICKS = {
   "music": [
    {
     "id": "76jVr9QVBtQ",
-    "start": 0,
+    "start": 251,
     "len": 0,
     "t": "Thunderstorms and Heavy Rain (Lost Music Co.)"
    },
@@ -485,6 +491,13 @@ const PICKS = {
  "combat": {
   "visual": [
    {
+    "id": "still:combat",
+    "still": "img/combat.webp",
+    "start": 0,
+    "len": 0,
+    "t": "painting"
+   },
+   {
     "id": "UYGc79SRjWg",
     "start": 0,
     "len": 3601,
@@ -495,15 +508,15 @@ const PICKS = {
     "start": 0,
     "len": 10500,
     "t": "Battle Aftermath | Combat Ambience, Gravediggers, Crows, Fires | 3 Hou"
-   },
-   {
-    "id": "-pSCxok55zw",
-    "start": 0,
-    "len": 3602,
-    "t": "Battle | War Ambience | 1 Hour"
    }
   ],
   "music": [
+   {
+    "id": "UDUuD4IiEyk",
+    "start": 0,
+    "len": 0,
+    "t": "Combat Music Megamix, The Witcher (Sound Board)"
+   },
    {
     "id": "ozquB9G6YQw",
     "start": 0,
@@ -515,34 +528,9 @@ const PICKS = {
     "start": 0,
     "len": 3655,
     "t": "1 Hour of Epic Combat Music | The King's Cavalry (Loop)"
-   },
-   {
-    "id": "gxP3e4jeaSc",
-    "start": 0,
-    "len": 3674,
-    "t": "Ambush in the Wilds | D&D/TTRPG Combat Music | 1 Hour (No AI)"
    }
   ],
-  "amb": [
-   {
-    "id": "Z98ZMt1zc94",
-    "start": 0,
-    "len": 10500,
-    "t": "Small Melee Battle | Fantasy RPG Ambience | 3 Hours"
-   },
-   {
-    "id": "-pSCxok55zw",
-    "start": 0,
-    "len": 3602,
-    "t": "Battle | War Ambience | 1 Hour"
-   },
-   {
-    "id": "x7QdTwSzyvQ",
-    "start": 0,
-    "len": 10800,
-    "t": "D&D Ambience -  Battlefield"
-   }
-  ],
+  "amb": null,
   "mix": {
    "music": 0.8,
    "amb": 1.0
@@ -1122,10 +1110,11 @@ class Layer {
     if (this.cand && this.soundRole) this.releaseSound();
     const c = this.list.shift();
     if (!c) return this.backup();
-    await whenYT(); if (this.dead) return;
-    this.cand = c; this.source = "youtube"; this.state = -1;
+    if (!c.still) { await whenYT(); if (this.dead) return; }
+    this.cand = c; this.source = c.still ? "still" : "youtube"; this.state = -1;
     this.host = document.createElement("div");
-    const inner = document.createElement("div"); this.host.appendChild(inner);
+    if (c.still) return this.showStill(c);
+    const inner = document.createElement("div"); inner.className = "yt"; this.host.appendChild(inner);
     if (this.kind === "visual") { this.host.className = "vis"; this.host.style.transitionDuration = this.sc.fade + "s"; $("stage").appendChild(this.host); }
     else $("audioBox").appendChild(this.host);
     const start = Math.floor((c.start || 0) + (this.kind === "music" || this.soundRole === "music" ? 0 : Math.random() * Math.min(3600, Math.max(0, (c.len || 0) * 0.4))));
@@ -1137,7 +1126,7 @@ class Layer {
           this.state = e.data;
           if (e.data === 1) {
             this.playedOnce = true; this.stallSince = 0; this.kicked = false;
-            if (this.kind === "visual") { this.host.style.opacity = 1; if (!this.shown && live.visual === this) { this.shown = true; showLabel(this.sc.name); } }
+            if (this.kind === "visual" && !this.shown) { this.shown = true; setTimeout(() => { if (this.dead) return; this.host.style.opacity = 1; if (live.visual === this) showLabel(this.sc.name); }, 400); } // skip YouTube's thumbnail flash
           }
           if (e.data === 0) { e.target.seekTo(this.start, true); e.target.playVideo(); }
         },
@@ -1146,13 +1135,20 @@ class Layer {
     // a video that never starts within 25 s is treated as failed
     this.watch = setTimeout(() => { if (!this.playedOnce && !this.dead) { console.warn("youtube timeout", c.id); this.next(); } }, 25000);
   }
+  showStill(c) { // a painting from the repo, animated in the page: instant, no seam
+    this.host.className = "vis still"; this.host.style.transitionDuration = this.sc.fade + "s"; $("stage").appendChild(this.host);
+    const img = new Image(); img.alt = ""; this.host.appendChild(img);
+    img.onload = () => { if (this.dead) return; this.state = 1; this.playedOnce = true; this.host.style.opacity = 1; this.fx = stillFx(this.host, c.fx || {}); if (live.visual === this) showLabel(this.sc.name); };
+    img.onerror = () => { ytFailed.add(c.id); this.host.remove(); this.next(); };
+    img.src = c.still;
+  }
   backup() {
     this.source = this.kind === "visual" ? "painted backup" : "synth backup";
     if (this.kind === "visual") { if (this.soundRole) this.releaseSound(); this.painter = startPainter(this.sc); if (live.visual === this) showLabel(this.sc.name); return; }
     if (!AC) return; // audio not unlocked yet; Start session creates it
     this.synth = makeLayer(this.kind === "music" ? "music" : "amb", this.sc);
   }
-  get playing() { return this.source === "youtube" ? this.state === 1 : this.source !== "loading"; }
+  get playing() { return this.source === "youtube" || this.source === "still" ? this.state === 1 : this.source !== "loading"; }
   level(v) {
     if (this.silent) return; // a muted picture only fades by CSS
     if (this.player && this.player.setVolume && this.state !== -1) { try { if (this.player.isMuted()) this.player.unMute(); this.player.setVolume(Math.round(v * 100)); } catch {} }
@@ -1172,9 +1168,35 @@ class Layer {
   stop() {
     this.dead = true; clearTimeout(this.watch);
     if (this.player) { const p = this.player, h = this.host; setTimeout(() => { try { p.destroy(); } catch {} h.remove(); }, this.silent ? (live.visual ? live.visual.sc.fade : 1) * 1000 + 300 : 300); } // a muted picture lingers while the new one fades in; one with sound already faded its volume
+    if (this.host && !this.player) { const h = this.host, fx = this.fx; setTimeout(() => { fx && fx.stop(); h.remove(); }, (live.visual ? live.visual.sc.fade : 1) * 1000 + 300); }
     if (this.synth) stopLayer(this.synth);
     if (this.painter) stopPainter(this.painter);
   }
+}
+
+// embers rising, smoke drifting and a flickering firelight glow over a still painting
+function stillFx(host, o) {
+  const glow = document.createElement("div"); glow.className = "glow";
+  glow.style.background = `radial-gradient(ellipse at ${o.glowX ?? 30}% ${o.glowY ?? 62}%, rgba(255,120,40,0.4), rgba(255,80,20,0) 55%)`;
+  const cv = document.createElement("canvas"); host.append(glow, cv);
+  const W = (cv.width = 960), H = (cv.height = 540), g = cv.getContext("2d");
+  const sprite = (r, c0) => { const s = document.createElement("canvas"); s.width = s.height = r * 2; const x = s.getContext("2d"), gr = x.createRadialGradient(r, r, 0, r, r, r); gr.addColorStop(0, c0); gr.addColorStop(1, "rgba(0,0,0,0)"); x.fillStyle = gr; x.fillRect(0, 0, r * 2, r * 2); return s; };
+  const ember = sprite(8, "rgba(255,190,90,1)"), smoke = sprite(160, "rgba(20,14,12,0.55)");
+  const embers = Array.from({ length: o.embers ?? 80 }, () => ({ x: rand(0, W), y: rand(0, H), v: rand(18, 60), s: rand(0.3, 1), ph: rand(0, 6), life: rand(0, 1) }));
+  const smokes = Array.from({ length: o.smoke ?? 7 }, () => ({ x: rand(0, W), y: rand(0, H * 0.7), v: rand(4, 10), s: rand(0.7, 1.6) }));
+  let raf = 0, last = 0, flick = 0.8;
+  const tick = (ts) => {
+    raf = requestAnimationFrame(tick); const t = ts / 1000, dt = Math.min(0.1, t - last); if (dt < 0.033) return; last = t;
+    g.clearRect(0, 0, W, H);
+    for (const p of smokes) { p.y -= p.v * dt; p.x += p.v * 0.6 * dt; if (p.y < -200 || p.x > W + 200) { p.y = H * rand(0.5, 0.9); p.x = rand(-200, W * 0.6); } g.globalAlpha = 0.5; g.drawImage(smoke, p.x - 160 * p.s, p.y - 160 * p.s, 320 * p.s, 320 * p.s); }
+    g.globalCompositeOperation = "lighter";
+    for (const p of embers) { p.life += dt * 0.25; p.y -= p.v * dt; p.x += Math.sin(t * 1.7 + p.ph) * 14 * dt; if (p.y < -10 || p.life > 1) { p.y = H * rand(0.55, 1.02); p.x = rand(0, W); p.life = 0; }
+      g.globalAlpha = Math.max(0, Math.sin(p.life * Math.PI)) * (0.6 + 0.4 * Math.sin(t * 9 + p.ph)); const r = 8 * p.s; g.drawImage(ember, p.x - r, p.y - r, r * 2, r * 2); }
+    g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+    flick += (rand(0.55, 1) - flick) * 0.25; glow.style.opacity = flick;
+  };
+  raf = requestAnimationFrame(tick);
+  return { stop: () => cancelAnimationFrame(raf) };
 }
 
 // painter backup reuses the two canvases
