@@ -48,7 +48,9 @@ body { background: var(--ink); color: var(--parch); font-family: var(--body); ov
 <script>
 "use strict";
 const SHEET_ID = "1oCoPLPpskk381FjGds7VneR6OUfrT8oGSwpkpHK9EN0";
-const SHEET_URL = () => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&range=A1:D1&headers=0&t=${Date.now()}`;
+// instant channel: voice Claude opens https://ntfy.sh/<topic>/publish?message=<scene>, no approval needed; the TV hears it at once
+const NTFY_TOPIC = "sb-45ef6da5e0638300";
+const SHEET_URL = () => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&range=A1:E1&headers=0&t=${Date.now()}`;
 const POLL_MS = 1500;
 const DEFAULTS = { scene: "road_day", music: 30, amb: 35, muted: false };
 
@@ -1287,16 +1289,27 @@ function parseCsvRow(text) {
   while ((m = re.exec(line)) && cells.length < 4) { cells.push(m[1] !== undefined ? m[1].replace(/""/g, '"') : m[2]); if (re.lastIndex >= line.length) break; re.lastIndex++; }
   return { scene: normScene(cells[0]), music: num(cells[1], DEFAULTS.music), amb: num(cells[2], DEFAULTS.amb), muted: /^true$/i.test(String(cells[3] ?? "").trim()) };
 }
+// sheet and instant channel both land here; whichever changed last wins
+function setState(s) { const prev = state; state = s; if (started && s.scene !== prev.scene) switchScene(SCENES[s.scene]); } // the name shows once the new picture plays
+// messages: a scene id ("combat", "town inn"), "music_20", "ambience_10", "mute", "unmute"
+function ntfyCommand(msg) {
+  const m = String(msg || "").trim().toLowerCase(), s = { ...state };
+  if (m === "mute") s.muted = true;
+  else if (m === "unmute") s.muted = false;
+  else { const v = m.match(/^(music|ambience|amb)[\s_=:]*(\d{1,3})$/); if (v) s[v[1] === "music" ? "music" : "amb"] = num(v[2], 30); else { const sc = normScene(m); if (!SCENES[sc]) return false; s.scene = sc; } }
+  setState(s); return true;
+}
+function listenNtfy() { // EventSource reconnects by itself; old messages are not replayed
+  try { const es = new EventSource(`https://ntfy.sh/${NTFY_TOPIC}/sse`); es.onmessage = (ev) => { try { const j = JSON.parse(ev.data); if (j.event === "message") ntfyCommand(j.message); } catch {} }; window.__ntfy = es; } catch {}
+}
 let sheetError = null, pollDelay = POLL_MS;
 async function poll() {
   try {
     const r = await fetch(SHEET_URL(), { cache: "no-store" });
     const text = await r.text();
     if (!r.ok || /^\s*</.test(text)) throw new Error(r.status === 401 || r.status === 403 || /^\s*</.test(text) ? "private" : "http " + r.status);
-    const s = parseCsvRow(text);
-    if (!SCENES[s.scene]) s.scene = state.scene;
-    const k = key(s);
-    if (k !== lastKey) { lastKey = k; const prev = state; state = s; if (started && s.scene !== prev.scene) switchScene(SCENES[s.scene]); /* the name shows once the new picture plays */ }
+    const line = text.split("\n")[0]; // E1 holds a stamp from the phone remote, so tapping the same scene again still counts
+    if (line !== lastKey) { lastKey = line; const s = parseCsvRow(text); if (!SCENES[s.scene]) s.scene = state.scene; setState(s); }
     sheetError = null; pollDelay = POLL_MS;
   } catch (e) { sheetError = e.message === "private" ? "private" : "net"; pollDelay = Math.min(pollDelay * 2, 30000); }
   renderWarn(); setTimeout(poll, pollDelay);
@@ -1331,7 +1344,7 @@ $("startBtn").addEventListener("click", async () => {
   wake();
 });
 window.SB = { get state() { return state; }, status: () => Object.fromEntries(Object.entries(live).map(([k, L]) => [k, L && { scene: L.sc.id, source: L.source, id: L.cand && L.source === "youtube" ? L.cand.id : null, state: L.state, playing: L.playing, fade: +L.fade.toFixed(2) }])) };
-poll();
+poll(); listenNtfy();
 </script>
 </body>
 </html>
