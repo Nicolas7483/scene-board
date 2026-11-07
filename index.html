@@ -16,7 +16,7 @@ body { background: var(--ink); color: var(--parch); font-family: var(--body); ov
 #paint { position: absolute; inset: 0; mix-blend-mode: soft-light; opacity: 0.85; background-size: cover; pointer-events: none; display: none; }
 /* YouTube frames: cover the screen and crop the title bar and watermark */
 .vis { position: absolute; inset: 0; opacity: 0; transition-property: opacity; transition-timing-function: ease-in-out; pointer-events: none; }
-.vis iframe, .vis > div { position: absolute; left: 50%; top: 50%; width: max(150vw, 266.67vh); height: max(84.38vw, 150vh); transform: translate(-50%, -50%) scale(0.84); border: 0; }
+.vis iframe, .vis > div { position: absolute; left: 50%; top: 50%; width: max(125vw, 222.22vh); height: max(70.31vw, 125vh); transform: translate(-50%, -50%) scale(0.92); border: 0; }
 #audioBox { position: fixed; right: 0; bottom: 0; width: 220px; height: 220px; overflow: hidden; z-index: -1; opacity: 0.01; pointer-events: none; }
 #audioBox div, #audioBox iframe { position: absolute; inset: 0; width: 220px; height: 220px; }
 #shade { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.45)); }
@@ -571,6 +571,12 @@ const PICKS = {
   ],
   "music": [
    {
+    "id": "72tOz4FPv00",
+    "start": 0,
+    "len": 0,
+    "t": "Elden Ring Epic Music Mix (Slow Walkthroughs)"
+   },
+   {
     "id": "PcOQZBnhu7g",
     "start": 0,
     "len": 10779,
@@ -581,12 +587,6 @@ const PICKS = {
     "start": 0,
     "len": 10664,
     "t": "Official DC20 Music | Epic Combat (3 hours loop)"
-   },
-   {
-    "id": "mWT11B_-sjQ",
-    "start": 0,
-    "len": 3739,
-    "t": "Final Boss | D&D/TTRPG Battle/Combat/Fight Music | 1 Hour"
    }
   ],
   "amb": [
@@ -1095,18 +1095,31 @@ window.onYouTubeIframeAPIReady = () => { ytReady = true; ytWaiters.splice(0).for
 const whenYT = () => new Promise((r) => (ytReady ? r() : ytWaiters.push(r)));
 const ytFailed = new Set(); // ids that errored this session are skipped next time
 
+// The sound layer this scene's own video already carries (the same video is the first pick for picture and that sound).
+function sharedRole(sc) {
+  const p = PICKS[sc.id] || {}, v = p.visual && p.visual[0];
+  if (!v || ytFailed.has(v.id)) return null;
+  for (const r of ["music", "amb"]) if (p[r] && p[r][0] && p[r][0].id === v.id) return r;
+  return null;
+}
+
 // One layer = one scene's visual, music or ambience. It walks the candidate list, then falls back to the
-// in page synth (sound) or painter (visual). level() is 0..1 and is applied every fade tick.
+// in page synth (sound) or painter (visual). A visual may also carry a sound role (one player, one stream).
 class Layer {
   constructor(kind, sc) {
-    this.kind = kind; this.sc = sc; this.fade = 0; this.target = 1; this.source = "loading"; this.state = -1; this.dead = false;
+    this.kind = kind; this.sc = sc; this.fade = 0; this.source = "loading"; this.state = -1; this.dead = false;
+    this.soundRole = kind === "visual" ? sharedRole(sc) : null;
     this.list = (PICKS[sc.id] && PICKS[sc.id][kind] || []).filter((c) => !ytFailed.has(c.id));
     this.next();
   }
+  get silent() { return this.kind === "visual" && !this.soundRole; }
+  // the picture's video failed, so the sound it carried gets its own layer
+  releaseSound() { const r = this.soundRole; this.soundRole = null; if (r && live.visual === this) spawn(r, this.sc); }
   async next() {
     if (this.dead) return;
-    clearTimeout(this.watch);
+    clearTimeout(this.watch); this.playedOnce = false; this.stallSince = 0; this.kicked = false;
     if (this.player) { try { this.player.destroy(); } catch {} this.host.remove(); this.player = null; }
+    if (this.cand && this.soundRole) this.releaseSound();
     const c = this.list.shift();
     if (!c) return this.backup();
     await whenYT(); if (this.dead) return;
@@ -1115,12 +1128,19 @@ class Layer {
     const inner = document.createElement("div"); this.host.appendChild(inner);
     if (this.kind === "visual") { this.host.className = "vis"; this.host.style.transitionDuration = this.sc.fade + "s"; $("stage").appendChild(this.host); }
     else $("audioBox").appendChild(this.host);
-    const start = Math.floor((c.start || 0) + (this.kind === "music" ? 0 : Math.random() * Math.min(3600, Math.max(0, (c.len || 0) * 0.4))));
+    const start = Math.floor((c.start || 0) + (this.kind === "music" || this.soundRole === "music" ? 0 : Math.random() * Math.min(3600, Math.max(0, (c.len || 0) * 0.4))));
     this.start = c.start || 0;
-    this.player = new YT.Player(inner, { videoId: c.id, playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, rel: 0, playsinline: 1, modestbranding: 1, start, mute: this.kind === "visual" ? 1 : 0 },
+    this.player = new YT.Player(inner, { videoId: c.id, playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, rel: 0, playsinline: 1, modestbranding: 1, start, mute: this.silent ? 1 : 0 },
       events: {
-        onReady: (e) => { if (this.dead) return; if (this.kind === "visual") e.target.mute(); else { e.target.unMute(); e.target.setVolume(0); } e.target.playVideo(); },
-        onStateChange: (e) => { this.state = e.data; if (e.data === 1) { this.playedOnce = true; if (this.kind === "visual") this.host.style.opacity = this.target; } if (e.data === 0) { e.target.seekTo(this.start, true); e.target.playVideo(); } },
+        onReady: (e) => { if (this.dead) return; if (this.silent) e.target.mute(); else { e.target.unMute(); e.target.setVolume(0); } e.target.playVideo(); },
+        onStateChange: (e) => {
+          this.state = e.data;
+          if (e.data === 1) {
+            this.playedOnce = true; this.stallSince = 0; this.kicked = false;
+            if (this.kind === "visual") { this.host.style.opacity = 1; if (!this.shown && live.visual === this) { this.shown = true; showLabel(this.sc.name); } }
+          }
+          if (e.data === 0) { e.target.seekTo(this.start, true); e.target.playVideo(); }
+        },
         onError: (e) => { console.warn("youtube error", e.data, c.id); ytFailed.add(c.id); this.next(); },
       } });
     // a video that never starts within 25 s is treated as failed
@@ -1128,22 +1148,30 @@ class Layer {
   }
   backup() {
     this.source = this.kind === "visual" ? "painted backup" : "synth backup";
-    if (this.kind === "visual") { this.painter = startPainter(this.sc); return; }
+    if (this.kind === "visual") { if (this.soundRole) this.releaseSound(); this.painter = startPainter(this.sc); if (live.visual === this) showLabel(this.sc.name); return; }
     if (!AC) return; // audio not unlocked yet; Start session creates it
     this.synth = makeLayer(this.kind === "music" ? "music" : "amb", this.sc);
   }
   get playing() { return this.source === "youtube" ? this.state === 1 : this.source !== "loading"; }
   level(v) {
-    if (this.kind === "visual") return; // visual frames fade by CSS when they start playing
+    if (this.silent) return; // a muted picture only fades by CSS
     if (this.player && this.player.setVolume && this.state !== -1) { try { if (this.player.isMuted()) this.player.unMute(); this.player.setVolume(Math.round(v * 100)); } catch {} }
     if (this.synth) this.synth.out.gain.setTargetAtTime(v, AC.currentTime, 0.05);
   }
-  ensureLoop() { // jump back before the end screen appears
-    try { const p = this.player; if (p && this.state === 1) { const d = p.getDuration(), t = p.getCurrentTime(); if (d > 60 && t > d - 25) p.seekTo(this.start, true); } } catch {}
+  health() { // loop before the end screen, resume a pause, recover a stall
+    const p = this.player; if (!p || this.dead || !this.playedOnce) return;
+    try {
+      if (this.state === 1) { this.stallSince = 0; this.kicked = false; const d = p.getDuration(), t = p.getCurrentTime(); if (d > 60 && t > d - 25) p.seekTo(this.start, true); return; }
+      if (this.state === 2) p.playVideo(); // nothing pauses on purpose
+      if (!this.stallSince) this.stallSince = performance.now();
+      const s = performance.now() - this.stallSince;
+      if (s > 8000 && !this.kicked) { this.kicked = true; p.playVideo(); }
+      if (s > 20000) { console.warn("youtube stalled", this.cand.id); this.next(); }
+    } catch {}
   }
   stop() {
     this.dead = true; clearTimeout(this.watch);
-    if (this.player) { const p = this.player, h = this.host; setTimeout(() => { try { p.destroy(); } catch {} h.remove(); }, this.kind === "visual" ? (live.visual ? live.visual.sc.fade : 1) * 1000 + 300 : 50); }
+    if (this.player) { const p = this.player, h = this.host; setTimeout(() => { try { p.destroy(); } catch {} h.remove(); }, this.silent ? (live.visual ? live.visual.sc.fade : 1) * 1000 + 300 : 300); } // a muted picture lingers while the new one fades in; one with sound already faded its volume
     if (this.synth) stopLayer(this.synth);
     if (this.painter) stopPainter(this.painter);
   }
@@ -1160,25 +1188,34 @@ function stopPainter(p) { p.cv.style.opacity = 0; if (!painters.some((q) => q.cv
 
 // ---------- Scene engine ----------
 const live = { visual: null, music: null, amb: null };
-function mixFor(sc, kind) { const m = (PICKS[sc.id] && PICKS[sc.id].mix) || {}; return kind === "visual" ? 1 : (m[kind] ?? 1); }
-function layerTarget(L) { if (L.kind === "visual") return 1; const vol = L.kind === "music" ? state.music : state.amb; return state.muted ? 0 : clamp((vol / 100) * mixFor(L.sc, L.kind), 0, 1); }
+function mixFor(sc, role) { const m = (PICKS[sc.id] && PICKS[sc.id].mix) || {}; return m[role] ?? 1; }
+function layerTarget(L) {
+  const role = L.kind === "visual" ? L.soundRole : L.kind; if (!role) return 1;
+  const vol = role === "music" ? state.music : state.amb;
+  return state.muted ? 0 : clamp((vol / 100) * mixFor(L.sc, role), 0, 1);
+}
 const fading = new Set();
+function spawn(kind, sc) { if (live[kind]) return; const L = new Layer(kind, sc); L.t0 = null; live[kind] = L; fading.add(L); }
 function switchScene(sc) {
+  const shared = sharedRole(sc);
   for (const kind of ["visual", "music", "amb"]) {
     const old = live[kind];
     if (old) { old.fadeOut = true; old.t0 = performance.now(); old.from = old.fade; old.toFade = sc.fade; fading.add(old); }
-    if (kind !== "visual" && PICKS[sc.id] && PICKS[sc.id][kind] === null) { live[kind] = null; continue; } // this scene's video already carries that sound
-    const L = new Layer(kind, sc); L.fade = 0; L.t0 = null; live[kind] = L; fading.add(L); if (old) fading.add(old);
+    // no separate layer when the scene's video already carries this sound
+    if (kind !== "visual" && (shared === kind || (PICKS[sc.id] && PICKS[sc.id][kind] === null))) { live[kind] = null; continue; }
+    const L = new Layer(kind, sc); L.t0 = null; live[kind] = L; fading.add(L);
   }
 }
+// who replaces a fading layer: its own kind, or the new picture when that picture carries the sound
+function successor(L) { return live[L.kind] || (live.visual && live.visual.soundRole === L.kind ? live.visual : null) || { playing: true }; }
 // one tick drives every fade: new layers ramp up once they actually play, old ones ramp down after their successor starts
 setInterval(() => {
   const now = performance.now();
   for (const L of fading) {
     const T = (L.fadeOut ? L.toFade : L.sc.fade) * 1000; // the incoming scene sets the pace
     if (L.fadeOut) {
-      const succ = live[L.kind] || { playing: true };
-      if (L.kind === "visual") { if (succ.playing) { L.stop(); fading.delete(L); } continue; } // old picture stays until the new one plays
+      const succ = successor(L);
+      if (L.silent) { if (succ.playing) { L.stop(); fading.delete(L); } continue; } // old picture stays until the new one plays
       if (!succ.playing && now - L.t0 < 6000) { L.level(layerTarget(L) * L.fade); continue; } // hold until the next one plays (max 6 s)
       if (!L.outStart) L.outStart = now;
       L.fade = Math.max(0, L.from * (1 - (now - L.outStart) / T));
@@ -1192,9 +1229,9 @@ setInterval(() => {
       if (L.fade >= 1) fading.delete(L);
     }
   }
-  for (const k of ["music", "amb"]) { const L = live[k]; if (L && !fading.has(L)) L.level(layerTarget(L)); }
+  for (const L of [live.visual, live.music, live.amb]) if (L && !L.silent && !fading.has(L)) L.level(layerTarget(L));
 }, 60);
-setInterval(() => Object.values(live).forEach((L) => L && L.ensureLoop()), 2000);
+setInterval(() => Object.values(live).forEach((L) => L && L.health()), 2000);
 
 // ---------- Sheet ----------
 let state = { ...DEFAULTS }, lastKey = null, started = false;
@@ -1213,7 +1250,7 @@ async function poll() {
     const s = parseCsvRow(text);
     if (!SCENES[s.scene]) s.scene = state.scene;
     const k = key(s);
-    if (k !== lastKey) { lastKey = k; const prev = state; state = s; if (started && s.scene !== prev.scene) { switchScene(SCENES[s.scene]); showLabel(SCENES[s.scene].name); } }
+    if (k !== lastKey) { lastKey = k; const prev = state; state = s; if (started && s.scene !== prev.scene) switchScene(SCENES[s.scene]); /* the name shows once the new picture plays */ }
     sheetError = null; pollDelay = POLL_MS;
   } catch (e) { sheetError = e.message === "private" ? "private" : "net"; pollDelay = Math.min(pollDelay * 2, 30000); }
   renderWarn(); setTimeout(poll, pollDelay);
@@ -1232,18 +1269,18 @@ function renderWarn() {
 // YouTube silently mutes a player when the browser blocks sound; detect that
 setInterval(() => {
   if (!started) return;
-  const L = live.music; let blocked = false;
-  try { blocked = !!(L && L.player && L.state === 1 && L.player.isMuted()) || (AC && AC.state !== "running"); } catch {}
+  let blocked = false;
+  try { blocked = [live.visual, live.music, live.amb].some((L) => L && !L.silent && L.player && L.state === 1 && L.player.isMuted()) || (AC && AC.state !== "running"); } catch {}
   if (blocked !== audioBlocked) { audioBlocked = blocked; renderWarn(); }
 }, 2000);
-document.addEventListener("pointerdown", () => { if (!started) return; if (AC) AC.resume(); for (const k of ["music", "amb"]) { const L = live[k]; try { L && L.player && (L.player.unMute(), L.player.playVideo()); } catch {} } });
+document.addEventListener("pointerdown", () => { if (!started) return; if (AC) AC.resume(); for (const L of [live.visual, live.music, live.amb]) { try { if (L && !L.silent && L.player) { L.player.unMute(); L.player.playVideo(); } } catch {} } });
 async function wake() { try { await navigator.wakeLock?.request("screen"); } catch {} }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") wake(); });
 
 $("startBtn").addEventListener("click", async () => {
   initAudio(); BUS.music.vol.gain.value = 1; BUS.amb.vol.gain.value = 1; try { await AC.resume(); } catch {}
   started = true; $("start").hidden = true;
-  switchScene(SCENES[state.scene]); showLabel(SCENES[state.scene].name);
+  switchScene(SCENES[state.scene]);
   try { await document.documentElement.requestFullscreen?.(); } catch {}
   wake();
 });
